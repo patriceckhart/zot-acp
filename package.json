@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "description": "ACP adapter for the zot coding agent",
   "license": "MIT",
-  "author": "Patrice Eckhart",
+  "author": "Patric Eckhart",
   "homepage": "https://github.com/patriceckhart/zot-acp#readme",
   "repository": {
     "type": "git",
