@@ -1,0 +1,109 @@
+name: release
+
+# Every push to main publishes a new release. The workflow:
+#   1. looks up the latest existing vX.Y.Z tag
+#   2. bumps the patch number (vX.Y.Z+1) — or starts at v0.0.1 if none.
+#      When the patch reaches 100 it overflows: vX.Y.99 -> vX.(Y+1).0
+#   3. creates and pushes that tag
+#   4. updates package.json to match, publishes to npm, creates a GitHub
+#      Release with auto-generated notes
+#
+# Skip a release by putting [release=skip] anywhere in the commit message —
+# useful for docs-only or ci-only commits. The equals-sign form is rare
+# enough that commits which merely mention the feature don't trip it.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  id-token: write
+
+# Only one release job at a time. If two pushes land in quick succession,
+# queue them so they don't race on the tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: ${{ !contains(github.event.head_commit.message, '[release=skip]') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so we can read existing tags.
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Compute next version
+        id: bump
+        shell: bash
+        env:
+          PATCH_CAP: 99
+        run: |
+          set -euo pipefail
+          latest=$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)
+          if [ -z "$latest" ]; then
+            latest="v0.0.0"
+          fi
+          echo "latest tag: $latest"
+
+          stripped="${latest#v}"
+          IFS=. read -r major minor patch <<< "$stripped"
+          patch=$((patch + 1))
+          if [ "$patch" -gt "$PATCH_CAP" ]; then
+            patch=0
+            minor=$((minor + 1))
+          fi
+          next="${major}.${minor}.${patch}"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "tag=v$next" >> "$GITHUB_OUTPUT"
+
+      - name: Sync package.json version
+        run: |
+          npm version "${{ steps.bump.outputs.next }}" --no-git-tag-version --allow-same-version
+          npm run build
+
+      - name: Create and push tag
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG" "${{ github.sha }}"
+          git push origin "$TAG"
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump.outputs.tag }}
+          name: ${{ steps.bump.outputs.next }}
+          generate_release_notes: true
