@@ -6,8 +6,9 @@ name: release
 #   2. bumps the patch number (vX.Y.Z+1) — or starts at v0.0.1 if none.
 #      When the patch reaches 100 it overflows: vX.Y.99 -> vX.(Y+1).0
 #   3. builds dist/ and packages it
-#   4. creates and pushes the tag
-#   5. publishes the same version to npm
+#   4. publishes to npm at the computed version
+#   5. creates and pushes the tag (only after npm publish succeeds, so a
+#      failed publish doesn't leave dangling tags that burn version numbers)
 #   6. creates a GitHub Release with the build attached and auto-generated notes
 #
 # Skip a release by putting [release=skip] anywhere in the commit message —
@@ -101,6 +102,11 @@ jobs:
             LICENSE
           (cd artifact && sha256sum "zot-acp-${TAG}.tar.gz" > "zot-acp-${TAG}.tar.gz.sha256")
 
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
+
       - name: Create and push tag
         env:
           TAG: ${{ steps.bump.outputs.tag }}
@@ -109,11 +115,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag "$TAG" "${{ github.sha }}"
           git push origin "$TAG"
-
-      - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

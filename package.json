@@ -1,5 +1,5 @@
 {
-  "name": "zot-acp",
+  "name": "@patriceckhart/zot-acp",
   "version": "0.0.1",
   "description": "ACP adapter for the zot coding agent",
   "license": "MIT",
