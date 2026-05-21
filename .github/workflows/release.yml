@@ -1,12 +1,12 @@
 name: release
 
-# Every push to main publishes a new release. The workflow:
+# Every push to main publishes a new GitHub Release. The workflow:
 #   1. looks up the latest existing vX.Y.Z tag
 #   2. bumps the patch number (vX.Y.Z+1) — or starts at v0.0.1 if none.
 #      When the patch reaches 100 it overflows: vX.Y.99 -> vX.(Y+1).0
-#   3. creates and pushes that tag
-#   4. updates package.json to match, publishes to npm, creates a GitHub
-#      Release with auto-generated notes
+#   3. builds dist/ and packages it
+#   4. creates and pushes the tag
+#   5. creates a GitHub Release with the build attached and auto-generated notes
 #
 # Skip a release by putting [release=skip] anywhere in the commit message —
 # useful for docs-only or ci-only commits. The equals-sign form is rare
@@ -18,7 +18,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 # Only one release job at a time. If two pushes land in quick succession,
 # queue them so they don't race on the tag.
@@ -43,7 +42,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
           cache: npm
 
       - name: Install
@@ -82,10 +80,17 @@ jobs:
           echo "next=$next" >> "$GITHUB_OUTPUT"
           echo "tag=v$next" >> "$GITHUB_OUTPUT"
 
-      - name: Sync package.json version
+      - name: Package build artifact
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
         run: |
-          npm version "${{ steps.bump.outputs.next }}" --no-git-tag-version --allow-same-version
-          npm run build
+          mkdir -p artifact
+          tar -czf "artifact/zot-acp-${TAG}.tar.gz" \
+            dist/ \
+            package.json \
+            README.md \
+            LICENSE
+          (cd artifact && sha256sum "zot-acp-${TAG}.tar.gz" > "zot-acp-${TAG}.tar.gz.sha256")
 
       - name: Create and push tag
         env:
@@ -96,14 +101,12 @@ jobs:
           git tag "$TAG" "${{ github.sha }}"
           git push origin "$TAG"
 
-      - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.bump.outputs.tag }}
           name: ${{ steps.bump.outputs.next }}
           generate_release_notes: true
+          files: |
+            artifact/zot-acp-${{ steps.bump.outputs.tag }}.tar.gz
+            artifact/zot-acp-${{ steps.bump.outputs.tag }}.tar.gz.sha256
