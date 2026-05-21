@@ -1,12 +1,14 @@
 name: release
 
-# Every push to main publishes a new GitHub Release. The workflow:
+# Every push to main publishes a new GitHub Release and a matching npm version.
+# The workflow:
 #   1. looks up the latest existing vX.Y.Z tag
 #   2. bumps the patch number (vX.Y.Z+1) — or starts at v0.0.1 if none.
 #      When the patch reaches 100 it overflows: vX.Y.99 -> vX.(Y+1).0
 #   3. builds dist/ and packages it
 #   4. creates and pushes the tag
-#   5. creates a GitHub Release with the build attached and auto-generated notes
+#   5. publishes the same version to npm
+#   6. creates a GitHub Release with the build attached and auto-generated notes
 #
 # Skip a release by putting [release=skip] anywhere in the commit message —
 # useful for docs-only or ci-only commits. The equals-sign form is rare
@@ -18,6 +20,8 @@ on:
 
 permissions:
   contents: write
+  # npm provenance attestations are signed by the GitHub OIDC token.
+  id-token: write
 
 # Only one release job at a time. If two pushes land in quick succession,
 # queue them so they don't race on the tag.
@@ -42,6 +46,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          registry-url: https://registry.npmjs.org
           cache: npm
 
       - name: Install
@@ -80,6 +85,10 @@ jobs:
           echo "next=$next" >> "$GITHUB_OUTPUT"
           echo "tag=v$next" >> "$GITHUB_OUTPUT"
 
+      - name: Sync package.json version
+        run: |
+          npm version "${{ steps.bump.outputs.next }}" --no-git-tag-version --allow-same-version
+
       - name: Package build artifact
         env:
           TAG: ${{ steps.bump.outputs.tag }}
@@ -100,6 +109,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag "$TAG" "${{ github.sha }}"
           git push origin "$TAG"
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
